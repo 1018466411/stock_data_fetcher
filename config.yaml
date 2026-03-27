@@ -1,0 +1,13 @@
+api:
+  domain: "https://data.diemeng.chat"
+  api_key: "6dd85fb56bd75cd75b150f0681f889968866d526377d04c30a" # 请填入您的apikey
+
+clickhouse:
+  host: "clickhouse"
+  port: 9000
+  user: "default"
+  password: ""
+  database: "stock_data"
+
+threads:
+  max_workers: 10

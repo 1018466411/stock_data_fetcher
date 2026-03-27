@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:23.8
+    container_name: stock_fetcher_ch
+    ports:
+      - "8126:8123"
+      - "9003:9000"
+    volumes:
+      - ch_data:/var/lib/clickhouse
+      - ch_logs:/var/log/clickhouse-server
+    environment:
+      - TZ=Asia/Shanghai
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=
+      - CLICKHOUSE_DB=stock_data
+    restart: always
+
+  app:
+    build: .
+    container_name: stock_fetcher_app
+    depends_on:
+      - clickhouse
+    ports:
+      - "8082:8080"
+    volumes:
+      - .:/app
+    restart: always
+
+volumes:
+  ch_data:
+  ch_logs:

@@ -1,0 +1,258 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div id="app">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="h3 mb-0 text-gray-800">任务管理控制台</h2>
+    </div>
+
+    <div class="row">
+        <!-- 历史数据任务 -->
+        <div class="col-xl-6 col-lg-12 mb-4">
+            <div class="card h-100 shadow-sm border-0">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+                    <span class="fw-bold"><i class="bi bi-clock-history me-2 text-primary"></i>历史数据 (fetch_history)</span>
+                    <span v-if="isTaskRunning('history')" class="badge bg-success rounded-pill px-3 py-2"><i class="bi bi-play-circle me-1"></i>运行中</span>
+                    <span v-else class="badge bg-secondary rounded-pill px-3 py-2">未运行</span>
+                </div>
+                <div class="card-body d-flex flex-column">
+                    <form @submit.prevent="startHistoryTask">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold text-muted small">数据级别 (Levels)</label>
+                            <div class="d-flex flex-wrap gap-2">
+                                <div class="form-check form-switch" v-for="lvl in availableLevels" :key="lvl.value">
+                                    <input class="form-check-input cursor-pointer" type="checkbox" :id="lvl.value" :value="lvl.value" v-model="historyForm.levels" :disabled="isTaskRunning('history')">
+                                    <label class="form-check-label cursor-pointer" :for="lvl.value">[[ lvl.label ]]</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-4">
+                                <label class="form-label fw-bold text-muted small">开始时间</label>
+                                <input type="text" class="form-control" v-model="historyForm.start_time" placeholder="2023-01-01 00:00:00" :disabled="isTaskRunning('history')">
+                            </div>
+                            <div class="col-md-6 mb-4">
+                                <label class="form-label fw-bold text-muted small">结束时间</label>
+                                <input type="text" class="form-control" v-model="historyForm.end_time" placeholder="留空为当前时间" :disabled="isTaskRunning('history')">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100 shadow-sm" v-if="!isTaskRunning('history')">
+                            <i class="bi bi-play-fill me-1"></i> 启动任务
+                        </button>
+                        <button type="button" @click.prevent="stopTask('history')" class="btn btn-danger w-100 shadow-sm" v-else>
+                            <i class="bi bi-stop-fill me-1"></i> 停止任务
+                        </button>
+                    </form>
+                    
+                    <div v-if="isTaskRunning('history')" class="d-flex flex-column mt-3 flex-grow-1">
+                        <div class="bg-dark rounded p-2 flex-grow-1" style="height: 250px; overflow-y: auto;" id="log-history">
+                            <div class="text-light font-monospace" style="font-size: 12px; line-height: 1.5;">
+                                <div v-for="(line, idx) in taskLogs['history']" :key="idx">[[ line ]]</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 实时快照任务 -->
+        <div class="col-xl-6 col-lg-12 mb-4">
+            <div class="card h-100 shadow-sm border-0">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+                    <span class="fw-bold"><i class="bi bi-lightning-charge me-2 text-success"></i>实时快照 (fetch_realtime)</span>
+                    <span v-if="isTaskRunning('realtime')" class="badge bg-success rounded-pill px-3 py-2"><i class="bi bi-play-circle me-1"></i>运行中</span>
+                    <span v-else class="badge bg-secondary rounded-pill px-3 py-2">未运行</span>
+                </div>
+                <div class="card-body d-flex flex-column">
+                    <p class="text-muted small mb-4">在交易时间段内，自动每 3 秒获取一次快照数据，每分钟补充分时数据。</p>
+                    
+                    <button type="button" @click.prevent="startSimpleTask('realtime')" class="btn btn-success shadow-sm w-100" v-if="!isTaskRunning('realtime')">
+                        <i class="bi bi-play-fill me-1"></i> 启动任务
+                    </button>
+                    <button type="button" @click.prevent="stopTask('realtime')" class="btn btn-danger w-100 shadow-sm" v-else>
+                        <i class="bi bi-stop-fill me-1"></i> 停止任务
+                    </button>
+
+                    <div v-if="isTaskRunning('realtime')" class="d-flex flex-column mt-3 flex-grow-1">
+                        <div class="bg-dark rounded p-2 flex-grow-1" style="height: 250px; overflow-y: auto;" id="log-realtime">
+                            <div class="text-light font-monospace" style="font-size: 12px; line-height: 1.5;">
+                                <div v-for="(line, idx) in taskLogs['realtime']" :key="idx">[[ line ]]</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 实时分时及补缺任务 -->
+        <div class="col-xl-6 col-lg-12 mb-4">
+            <div class="card h-100 shadow-sm border-0">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+                    <span class="fw-bold"><i class="bi bi-graph-up me-2 text-info"></i>实时分时 (fetch_realtime_minute)</span>
+                    <span v-if="isTaskRunning('realtime_minute')" class="badge bg-success rounded-pill px-3 py-2"><i class="bi bi-play-circle me-1"></i>运行中</span>
+                    <span v-else class="badge bg-secondary rounded-pill px-3 py-2">未运行</span>
+                </div>
+                <div class="card-body d-flex flex-column">
+                    <p class="text-muted small mb-4">严格按分钟级调度：每分钟 01 秒开始尝试获取当前分时数据，在15 秒时更新一次,注意这里的数据不写入历史数据的表。</p>
+                    
+                    <button type="button" @click.prevent="startSimpleTask('realtime_minute')" class="btn btn-info text-white shadow-sm w-100" v-if="!isTaskRunning('realtime_minute')">
+                        <i class="bi bi-play-fill me-1"></i> 启动任务
+                    </button>
+                    <button type="button" @click.prevent="stopTask('realtime_minute')" class="btn btn-danger w-100 shadow-sm" v-else>
+                        <i class="bi bi-stop-fill me-1"></i> 停止任务
+                    </button>
+
+                    <div v-if="isTaskRunning('realtime_minute')" class="d-flex flex-column mt-3 flex-grow-1">
+                        <div class="bg-dark rounded p-2 flex-grow-1" style="height: 250px; overflow-y: auto;" id="log-realtime_minute">
+                            <div class="text-light font-monospace" style="font-size: 12px; line-height: 1.5;">
+                                <div v-for="(line, idx) in taskLogs['realtime_minute']" :key="idx">[[ line ]]</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- WebSocket 任务 -->
+        <div class="col-xl-6 col-lg-12 mb-4">
+            <div class="card h-100 shadow-sm border-0">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+                    <span class="fw-bold"><i class="bi bi-broadcast me-2 text-warning"></i>WebSocket (fetch_ws)</span>
+                    <span v-if="isTaskRunning('ws')" class="badge bg-success rounded-pill px-3 py-2"><i class="bi bi-play-circle me-1"></i>运行中</span>
+                    <span v-else class="badge bg-secondary rounded-pill px-3 py-2">未运行</span>
+                </div>
+                <div class="card-body d-flex flex-column">
+                    <p class="text-muted small mb-4">建立长连接，持续接收实时的股票盘口数据推送。</p>
+                    
+                    <button type="button" @click.prevent="startSimpleTask('ws')" class="btn btn-warning shadow-sm w-100" v-if="!isTaskRunning('ws')">
+                        <i class="bi bi-play-fill me-1"></i> 启动任务
+                    </button>
+                    <button type="button" @click.prevent="stopTask('ws')" class="btn btn-danger w-100 shadow-sm" v-else>
+                        <i class="bi bi-stop-fill me-1"></i> 停止任务
+                    </button>
+
+                    <div v-if="isTaskRunning('ws')" class="d-flex flex-column mt-3 flex-grow-1">
+                        <div class="bg-dark rounded p-2 flex-grow-1" style="height: 250px; overflow-y: auto;" id="log-ws">
+                            <div class="text-light font-monospace" style="font-size: 12px; line-height: 1.5;">
+                                <div v-for="(line, idx) in taskLogs['ws']" :key="idx">[[ line ]]</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const { createApp } = Vue
+
+createApp({
+    compilerOptions: {
+        delimiters: ['[[', ']]']
+    },
+    data() {
+        return {
+            tasks: [],
+            availableLevels: [
+                { value: '1m', label: '1分钟' },
+                { value: '5m', label: '5分钟' },
+                { value: '15m', label: '15分钟' },
+                { value: '30m', label: '30分钟' },
+                { value: '60m', label: '60分钟' },
+                { value: 'daily', label: '日线' },
+                { value: 'finance', label: '每日指标' }
+            ],
+            historyForm: {
+                levels: ['1m', 'daily', 'finance'],
+                start_time: '2023-01-01 00:00:00',
+                end_time: '',
+                rate_limit: 300
+            },
+            taskLogs: {
+                'history': [],
+                'realtime': [],
+                'realtime_minute': [],
+                'ws': []
+            },
+            pollInterval: null,
+            logInterval: null
+        }
+    },
+    methods: {
+        isTaskRunning(taskId) {
+            return this.tasks.some(t => t.id === taskId && t.status === 'running');
+        },
+        async fetchTasks() {
+            const res = await fetch('/api/tasks');
+            const data = await res.json();
+            this.tasks = data.tasks;
+        },
+        async startHistoryTask() {
+            if (this.historyForm.levels.length === 0) {
+                alert('请至少选择一个Level');
+                return;
+            }
+            const formData = new FormData();
+            formData.append('levels', this.historyForm.levels.join(','));
+            formData.append('start_time', this.historyForm.start_time);
+            formData.append('end_time', this.historyForm.end_time);
+            
+            try {
+                const res = await fetch('/api/tasks/start/history', { method: 'POST', body: formData });
+                const data = await res.json();
+                if(!res.ok) alert(data.error || '启动失败');
+            } catch(e) {
+                alert(e);
+            }
+            this.fetchTasks();
+        },
+        async startSimpleTask(type) {
+            try {
+                const res = await fetch(`/api/tasks/start/${type}`, { method: 'POST' });
+                const data = await res.json();
+                if(!res.ok) alert(data.error || '启动失败');
+            } catch(e) {
+                alert(e);
+            }
+            this.fetchTasks();
+        },
+        async stopTask(taskId) {
+            if(confirm(`确定要停止 ${taskId} 任务吗?`)) {
+                await fetch(`/api/tasks/stop/${taskId}`, { method: 'POST' });
+                this.taskLogs[taskId] = [];
+                this.fetchTasks();
+            }
+        },
+        async fetchAllLogs() {
+            for (const task of this.tasks) {
+                if (task.status === 'running') {
+                    const res = await fetch(`/api/tasks/${task.id}/logs`);
+                    const data = await res.json();
+                    const oldLen = this.taskLogs[task.id] ? this.taskLogs[task.id].length : 0;
+                    this.taskLogs[task.id] = data.logs;
+                    
+                    if (data.logs.length > oldLen) {
+                        this.$nextTick(() => {
+                            const container = document.getElementById(`log-${task.id}`);
+                            if (container) {
+                                container.scrollTop = container.scrollHeight;
+                            }
+                        });
+                    }
+                }
+            }
+        }
+    },
+    mounted() {
+        this.fetchTasks();
+        this.pollInterval = setInterval(this.fetchTasks, 3000);
+        this.logInterval = setInterval(this.fetchAllLogs, 2000);
+    },
+    unmounted() {
+        clearInterval(this.pollInterval);
+        if (this.logInterval) clearInterval(this.logInterval);
+    }
+}).mount('#app')
+</script>
+{% endblock %}

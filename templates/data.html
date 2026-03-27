@@ -1,0 +1,162 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div id="app">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="h3 mb-0 text-gray-800">数据查看分析</h2>
+    </div>
+
+    <div class="card shadow-sm mb-4 border-0">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label fw-bold text-muted small">快速选择表</label>
+                    <select class="form-select border-secondary" v-model="selectedTable" @change="buildDefaultQuery">
+                        <option value="">-- 选择表 --</option>
+                        <option v-for="table in tables" :value="table">[[ table ]]</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold text-muted small">股票代码</label>
+                    <div class="input-group">
+                        <span class="input-group-text border-secondary"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control border-secondary" v-model="stockCode" placeholder="如: 000001.SZ">
+                    </div>
+                </div>
+                <div class="col-md-4 d-flex align-items-end">
+                    <button class="btn btn-outline-primary w-100" @click="buildDefaultQuery">
+                        <i class="bi bi-magic me-1"></i> 生成查询语句
+                    </button>
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <label class="form-label fw-bold text-muted small">SQL Query (ClickHouse)</label>
+                <div class="position-relative">
+                    <textarea class="form-control font-monospace border-secondary bg-light" v-model="query" rows="5" style="font-size: 14px;"></textarea>
+                    <button class="btn btn-success position-absolute bottom-0 end-0 m-2 shadow-sm" @click="executeQuery" :disabled="loading">
+                        <span v-if="loading" class="spinner-border spinner-border-sm me-1"></span>
+                        <i v-else class="bi bi-play-fill me-1"></i>
+                        执行查询
+                    </button>
+                </div>
+                <div class="form-text mt-2"><i class="bi bi-info-circle me-1"></i>支持原生 ClickHouse SQL 语法。出于性能考虑，结果最多展示前 1000 条。</div>
+            </div>
+        </div>
+    </div>
+
+    <div v-if="error" class="alert alert-danger shadow-sm border-0 border-start border-danger border-4">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>[[ error ]]
+    </div>
+
+    <div class="card shadow-sm border-0" v-if="result">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+            <span class="fw-bold text-secondary">查询结果</span>
+            <span class="badge bg-primary rounded-pill">[[ result.data.length ]] rows</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                <table class="table table-hover table-striped mb-0 align-middle" style="font-size: 14px;">
+                    <thead class="table-dark" style="position: sticky; top: 0; z-index: 1;">
+                        <tr>
+                            <th v-for="col in result.columns" :key="col" class="border-0 font-monospace text-nowrap">[[ col ]]</th>
+                        </tr>
+                    </thead>
+                    <tbody class="border-top-0">
+                        <tr v-for="(row, idx) in result.data" :key="idx">
+                            <td v-for="col in result.columns" :key="col" class="text-nowrap">[[ row[col] ]]</td>
+                        </tr>
+                        <tr v-if="result.data.length === 0">
+                            <td :colspan="result.columns.length" class="text-center text-muted py-4">
+                                <i class="bi bi-inbox fs-4 d-block mb-2"></i>查询结果为空
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const { createApp } = Vue
+
+createApp({
+    compilerOptions: {
+        delimiters: ['[[', ']]']
+    },
+    data() {
+        return {
+            tables: [],
+            selectedTable: '',
+            stockCode: '',
+            query: 'SELECT * FROM system.tables LIMIT 10;',
+            loading: false,
+            error: null,
+            result: null
+        }
+    },
+    methods: {
+        async fetchTables() {
+            try {
+                const res = await fetch('/api/tables');
+                const data = await res.json();
+                if (data.tables) {
+                    this.tables = data.tables;
+                }
+            } catch (e) {
+                console.error("Failed to fetch tables");
+            }
+        },
+        buildDefaultQuery() {
+            if (!this.selectedTable) return;
+            let q = `SELECT * FROM ${this.selectedTable}`;
+            let conditions = [];
+            if (this.stockCode) {
+                conditions.push(`stock_code = '${this.stockCode}'`);
+            }
+            if (conditions.length > 0) {
+                q += ` WHERE ${conditions.join(' AND ')}`;
+            }
+            // 默认加上时间倒序
+            if (this.selectedTable.includes('history') || this.selectedTable.includes('realtime')) {
+                q += ` ORDER BY trade_time DESC`;
+            } else if (this.selectedTable.includes('finance')) {
+                q += ` ORDER BY trade_date DESC`;
+            } else if (this.selectedTable.includes('snapshot')) {
+                q += ` ORDER BY snapshot_time DESC`;
+            }
+            
+            q += ` LIMIT 100`;
+            this.query = q;
+        },
+        async executeQuery() {
+            if (!this.query.trim()) return;
+            this.loading = true;
+            this.error = null;
+            this.result = null;
+            try {
+                const res = await fetch('/api/query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: this.query })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    this.result = data;
+                } else {
+                    this.error = data.error || 'Query failed';
+                }
+            } catch (e) {
+                this.error = String(e);
+            } finally {
+                this.loading = false;
+            }
+        }
+    },
+    mounted() {
+        this.fetchTables();
+    }
+}).mount('#app')
+</script>
+{% endblock %}
