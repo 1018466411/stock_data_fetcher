@@ -26,6 +26,9 @@ task_lock = threading.Lock()
 class SqlQueryRequest(BaseModel):
     query: str
 
+class ApiKeyRequest(BaseModel):
+    api_key: str
+
 def run_script_in_background(task_id: str, cmd: List[str]):
     try:
         process = subprocess.Popen(
@@ -76,6 +79,36 @@ async def get_tasks():
                 "status": "running" if proc.poll() is None else "stopped"
             })
         return {"tasks": active}
+
+@app.get("/api/config/apikey")
+async def get_api_key():
+    try:
+        config = db.get_config()
+        return {"api_key": config.get("api", {}).get("api_key", "")}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.post("/api/config/apikey")
+async def update_api_key(req: ApiKeyRequest):
+    try:
+        import re
+        config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
+        with open(config_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Replace the api_key line
+        new_content = re.sub(
+            r'(api_key:\s*)"[^"]*"', 
+            rf'\1"{req.api_key}"', 
+            content
+        )
+        
+        with open(config_path, 'w', encoding='utf-8') as f:
+            f.write(new_content)
+            
+        return {"message": "API Key updated successfully"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 @app.get("/api/tasks/{task_id}/logs")
 async def get_task_logs(task_id: str):
