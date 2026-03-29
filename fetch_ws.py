@@ -22,11 +22,14 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # 全局 ClickHouse 客户端和配置
 ch_client = None
 config = get_config()
-API_KEY = config['api']['api_key']
 
-# 假设 WebSocket 的地址是基于 HTTP 域名转换的，或由配置指定
-# 这里提供一个示例 WS URL
-WS_URL = config['api']['domain'].replace("https://", "wss://").replace("http://", "ws://") + f"/ws/stock/snapshot?token={API_KEY}"
+def get_ws_url():
+    api_key = config['api'].get('api_key') or __import__('db').get_api_key()
+    if not api_key:
+        logging.error("未配置 API Key，程序退出。")
+        import os
+        os._exit(1)
+    return config['api']['domain'].replace("https://", "wss://").replace("http://", "ws://") + f"/ws/stock/snapshot?token={api_key}"
 
 def save_to_db(data_list):
     """批量写入 ClickHouse"""
@@ -101,9 +104,18 @@ def on_message(ws, message):
 
 def on_error(ws, error):
     logging.error(f"WebSocket 发生错误: {error}")
+    error_str = str(error)
+    if '401' in error_str or '403' in error_str or 'Handshake status 401' in error_str or 'Handshake status 403' or 'Handshake status 402' in error_str:
+        logging.error("WebSocket 鉴权失败或无权限，程序退出。")
+        import os
+        os._exit(1)
 
 def on_close(ws, close_status_code, close_msg):
-    logging.warning("WebSocket 连接已关闭，准备重连...")
+    logging.warning(f"WebSocket 连接已关闭 (Status: {close_status_code}, Msg: {close_msg})，准备重连...")
+    if close_status_code in [4001, 4003, 403, 401, 402]:
+        logging.error("WebSocket 因权限问题被关闭，程序退出。")
+        import os
+        os._exit(1)
 
 def on_open(ws):
     logging.info("WebSocket 连接已建立。")
@@ -116,12 +128,13 @@ def main():
     init_db()
     ch_client = get_ch_client()
     
-    logging.info(f"准备连接 WebSocket: {WS_URL}")
-    
     # 启用自动重连的 WebSocket 应用
     while True:
+        ws_url = get_ws_url()
+        logging.info(f"准备连接 WebSocket: {ws_url}")
+        
         ws = websocket.WebSocketApp(
-            WS_URL,
+            ws_url,
             on_open=on_open,
             on_message=on_message,
             on_error=on_error,

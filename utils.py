@@ -8,7 +8,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 config = get_config()
 API_DOMAIN = config['api']['domain'].rstrip('/')
-API_KEY = config.get('api', {}).get('api_key') or __import__('db').get_api_key()
 
 # 限速控制全局变量
 RATE_LIMIT = 300  # 默认 300 次/分钟
@@ -39,7 +38,13 @@ def make_request(endpoint, params=None, method='GET'):
     if not params:
         params = {}
 
-    headers = {'apiKey': API_KEY}
+    api_key = config.get('api', {}).get('api_key') or __import__('db').get_api_key()
+    if not api_key:
+        logging.error("未配置 API Key，程序退出。")
+        import os
+        os._exit(1)
+
+    headers = {'apiKey': api_key}
     url = f"{API_DOMAIN}{endpoint}"
 
     while True:
@@ -51,6 +56,11 @@ def make_request(endpoint, params=None, method='GET'):
             else:
                 response = requests.get(url, params=params, headers=headers, timeout=60)
             
+            if response.status_code in [401, 402, 403]:
+                logging.error(f"API Key 验证失败或无权限 (HTTP {response.status_code})，程序退出。URL: {url}")
+                import os
+                os._exit(1)
+
             # 如果触发限速 (假设 HTTP 状态码 429 或 错误码)
             if response.status_code == 429:
                 logging.warning(f"触发限速，等待 5 秒后重试... URL: {url}")
@@ -60,6 +70,11 @@ def make_request(endpoint, params=None, method='GET'):
             response.raise_for_status()
             data = response.json()
             
+            if data.get('code') in [401, 402, 403]:
+                logging.error(f"API Key 验证失败或无权限 (Code {data.get('code')})，程序退出。URL: {url}")
+                import os
+                os._exit(1)
+
             # 根据约定的业务 code 判断，这里假设非 200 为限速或其他错误
             if data.get('code') == 429 or '限速' in str(data.get('msg', '')):
                 logging.warning(f"触发接口限速规则，等待 5 秒后重试... URL: {url}")
@@ -74,6 +89,11 @@ def make_request(endpoint, params=None, method='GET'):
             return data.get('data')
             
         except requests.exceptions.RequestException as e:
+            if hasattr(e, 'response') and e.response is not None and e.response.status_code in [401, 402, 403]:
+                logging.error(f"API Key 验证失败或无权限 (HTTP {e.response.status_code})，程序退出。URL: {url}")
+                import os
+                os._exit(1)
+                
             trace_id = ""
             if 'response' in locals() and hasattr(response, 'headers'):
                 trace_id = response.headers.get('x-trace-id', response.headers.get('trace-id', ''))
