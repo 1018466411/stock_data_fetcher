@@ -2,6 +2,36 @@ import yaml
 from clickhouse_driver import Client
 import os
 
+def get_api_key():
+    env_path = os.path.join(os.path.dirname(__file__), '.env')
+    if os.path.exists(env_path):
+        with open(env_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('API_KEY='):
+                    return line.split('=', 1)[1].strip('"\'')
+    return ""
+
+def set_api_key(api_key):
+    env_path = os.path.join(os.path.dirname(__file__), '.env')
+    lines = []
+    found = False
+    if os.path.exists(env_path):
+        with open(env_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            
+    for i, line in enumerate(lines):
+        if line.strip().startswith('API_KEY='):
+            lines[i] = f'API_KEY="{api_key}"\n'
+            found = True
+            break
+            
+    if not found:
+        lines.append(f'API_KEY="{api_key}"\n')
+        
+    with open(env_path, 'w', encoding='utf-8') as f:
+        f.writelines(lines)
+
 def get_config():
     config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
     with open(config_path, 'r', encoding='utf-8') as f:

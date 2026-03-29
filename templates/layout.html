@@ -96,7 +96,7 @@
                     <div class="d-flex align-items-center bg-white p-2 rounded shadow-sm" style="width: 500px;">
                         <i class="bi bi-key-fill text-warning me-2 fs-5"></i>
                         <input type="text" id="globalApiKey" class="form-control border-0 shadow-none focus-ring" placeholder="请输入您的 API Key" style="box-shadow: none;">
-                        <button class="btn btn-primary btn-sm ms-2 px-3 rounded-pill" onclick="saveApiKey()">保存</button>
+                        <button class="btn btn-primary btn-sm ms-2 px-3 rounded-pill text-nowrap" id="saveApiKeyBtn" onclick="saveApiKey()">保存</button>
                     </div>
                 </div>
 
@@ -125,6 +125,12 @@
                 alert('请输入有效的 API Key');
                 return;
             }
+            
+            const btn = document.getElementById('saveApiKeyBtn');
+            const originalText = btn.innerText;
+            btn.innerText = '验证中...';
+            btn.disabled = true;
+            
             try {
                 const res = await fetch('/api/config/apikey', {
                     method: 'POST',
@@ -133,12 +139,15 @@
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    alert('API Key 保存成功！下次启动任务将生效。');
+                    alert('API Key 验证并保存成功！下次启动任务将生效。');
                 } else {
                     alert('保存失败: ' + (data.error || '未知错误'));
                 }
             } catch (e) {
                 alert('保存出错: ' + e.message);
+            } finally {
+                btn.innerText = originalText;
+                btn.disabled = false;
             }
         }
     </script>

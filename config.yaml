@@ -1,6 +1,6 @@
 api:
   domain: "https://data.diemeng.chat"
-  api_key: "" # 请填入您的apikey
+  api_key: "" # 推荐在界面上配置，配置后会保存到 .env 文件中
 
 clickhouse:
   host: "clickhouse"

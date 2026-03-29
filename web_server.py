@@ -83,30 +83,41 @@ async def get_tasks():
 @app.get("/api/config/apikey")
 async def get_api_key():
     try:
-        config = db.get_config()
-        return {"api_key": config.get("api", {}).get("api_key", "")}
+        api_key = db.get_api_key()
+        if not api_key:
+            config = db.get_config()
+            api_key = config.get("api", {}).get("api_key", "")
+        return {"api_key": api_key}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 @app.post("/api/config/apikey")
 async def update_api_key(req: ApiKeyRequest):
     try:
-        import re
-        config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
-        with open(config_path, 'r', encoding='utf-8') as f:
-            content = f.read()
+        # 先验证 API Key
+        config = db.get_config()
+        api_domain = config.get("api", {}).get("domain", "https://data.diemeng.chat").rstrip('/')
         
-        # Replace the api_key line
-        new_content = re.sub(
-            r'(api_key:\s*)"[^"]*"', 
-            rf'\1"{req.api_key}"', 
-            content
-        )
+        import requests
+        test_url = f"{api_domain}/api/stock/list"
+        headers = {"apiKey": req.api_key}
         
-        with open(config_path, 'w', encoding='utf-8') as f:
-            f.write(new_content)
+        response = requests.get(test_url, headers=headers, timeout=10)
+        
+        try:
+            data = response.json()
+            if response.status_code != 200 or data.get('code') != 200:
+                error_msg = data.get('msg') if isinstance(data, dict) else 'Unknown error'
+                return JSONResponse(status_code=400, content={"error": f"API Key 无效或未开通权限: {error_msg}"})
+        except ValueError:
+            return JSONResponse(status_code=400, content={"error": "API Key 验证失败：服务端返回非 JSON 数据"})
+            
+        # 验证通过，保存到 .env 文件
+        db.set_api_key(req.api_key)
             
         return {"message": "API Key updated successfully"}
+    except requests.exceptions.RequestException as e:
+        return JSONResponse(status_code=400, content={"error": f"验证网络请求失败，请重试: {str(e)}"})
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 

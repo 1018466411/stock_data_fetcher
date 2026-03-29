@@ -8,7 +8,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 config = get_config()
 API_DOMAIN = config['api']['domain'].rstrip('/')
-API_KEY = config['api']['api_key']
+API_KEY = config.get('api', {}).get('api_key') or __import__('db').get_api_key()
 
 # 限速控制全局变量
 RATE_LIMIT = 300  # 默认 300 次/分钟

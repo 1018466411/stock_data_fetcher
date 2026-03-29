@@ -44,7 +44,7 @@
                         </button>
                     </form>
                     
-                    <div v-if="isTaskRunning('history')" class="d-flex flex-column mt-3 flex-grow-1">
+                    <div v-if="isTaskRunning('history') || taskLogs['history'].length > 0" class="d-flex flex-column mt-3 flex-grow-1">
                         <div class="bg-dark rounded p-2 flex-grow-1" style="height: 250px; overflow-y: auto;" id="log-history">
                             <div class="text-light font-monospace" style="font-size: 12px; line-height: 1.5;">
                                 <div v-for="(line, idx) in taskLogs['history']" :key="idx">[[ line ]]</div>
@@ -73,7 +73,7 @@
                         <i class="bi bi-stop-fill me-1"></i> 停止任务
                     </button>
 
-                    <div v-if="isTaskRunning('realtime')" class="d-flex flex-column mt-3 flex-grow-1">
+                    <div v-if="isTaskRunning('realtime') || taskLogs['realtime'].length > 0" class="d-flex flex-column mt-3 flex-grow-1">
                         <div class="bg-dark rounded p-2 flex-grow-1" style="height: 250px; overflow-y: auto;" id="log-realtime">
                             <div class="text-light font-monospace" style="font-size: 12px; line-height: 1.5;">
                                 <div v-for="(line, idx) in taskLogs['realtime']" :key="idx">[[ line ]]</div>
@@ -102,7 +102,7 @@
                         <i class="bi bi-stop-fill me-1"></i> 停止任务
                     </button>
 
-                    <div v-if="isTaskRunning('realtime_minute')" class="d-flex flex-column mt-3 flex-grow-1">
+                    <div v-if="isTaskRunning('realtime_minute') || taskLogs['realtime_minute'].length > 0" class="d-flex flex-column mt-3 flex-grow-1">
                         <div class="bg-dark rounded p-2 flex-grow-1" style="height: 250px; overflow-y: auto;" id="log-realtime_minute">
                             <div class="text-light font-monospace" style="font-size: 12px; line-height: 1.5;">
                                 <div v-for="(line, idx) in taskLogs['realtime_minute']" :key="idx">[[ line ]]</div>
@@ -131,7 +131,7 @@
                         <i class="bi bi-stop-fill me-1"></i> 停止任务
                     </button>
 
-                    <div v-if="isTaskRunning('ws')" class="d-flex flex-column mt-3 flex-grow-1">
+                    <div v-if="isTaskRunning('ws') || taskLogs['ws'].length > 0" class="d-flex flex-column mt-3 flex-grow-1">
                         <div class="bg-dark rounded p-2 flex-grow-1" style="height: 250px; overflow-y: auto;" id="log-ws">
                             <div class="text-light font-monospace" style="font-size: 12px; line-height: 1.5;">
                                 <div v-for="(line, idx) in taskLogs['ws']" :key="idx">[[ line ]]</div>
@@ -225,21 +225,26 @@ createApp({
             }
         },
         async fetchAllLogs() {
-            for (const task of this.tasks) {
-                if (task.status === 'running') {
-                    const res = await fetch(`/api/tasks/${task.id}/logs`);
+            const taskIds = ['history', 'realtime', 'realtime_minute', 'ws'];
+            for (const taskId of taskIds) {
+                try {
+                    const res = await fetch(`/api/tasks/${taskId}/logs`);
+                    if (!res.ok) continue;
                     const data = await res.json();
-                    const oldLen = this.taskLogs[task.id] ? this.taskLogs[task.id].length : 0;
-                    this.taskLogs[task.id] = data.logs;
                     
-                    if (data.logs.length > oldLen) {
+                    const oldLen = this.taskLogs[taskId] ? this.taskLogs[taskId].length : 0;
+                    this.taskLogs[taskId] = data.logs;
+                    
+                    if (data.logs && data.logs.length > oldLen) {
                         this.$nextTick(() => {
-                            const container = document.getElementById(`log-${task.id}`);
+                            const container = document.getElementById(`log-${taskId}`);
                             if (container) {
                                 container.scrollTop = container.scrollHeight;
                             }
                         });
                     }
+                } catch (e) {
+                    // Ignore fetch errors
                 }
             }
         }
