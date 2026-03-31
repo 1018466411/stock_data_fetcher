@@ -199,6 +199,19 @@ def main():
     init_db()
     logging.info("实时分时数据及补缺服务已启动...")
     
+    # 启动时的逻辑判断
+    now = datetime.now()
+    if now.weekday() < 5:
+        current_time = now.time()
+        start_time = datetime.strptime("09:31", "%H:%M").time()
+        end_time = datetime.strptime("15:00", "%H:%M").time()
+        
+        if current_time > end_time:
+            logging.info("启动时间晚于15:00，主动发起一次全市场收盘补缺检查...")
+            threading.Thread(target=check_and_fill_missing_minutes).start()
+        elif current_time < start_time:
+            logging.info("启动时间早于09:31，等待开盘时间到来...")
+    
     last_run_01_minute = -1
     last_run_15_minute = -1
     last_not_trading_log_minute = -1
