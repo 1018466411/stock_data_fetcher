@@ -40,6 +40,46 @@ def is_trading_time():
         return True
     return False
 
+def fetch_and_insert_missing_minute(target_time_str):
+    """单独获取并插入某一分钟的数据"""
+    try:
+        client = get_ch_client()
+        logging.info(f"正在补缺时间点: {target_time_str} ...")
+        data = make_request("/api/realtime/history", {"trade_time": target_time_str}, method='POST')
+        
+        records = []
+        if isinstance(data, dict) and 'list' in data:
+            records = data['list']
+        elif isinstance(data, list):
+            records = data
+
+        if records:
+            insert_data = []
+            for row in records:
+                t_time = row.get('trade_time')
+                if isinstance(t_time, str):
+                    if len(t_time) == 10:
+                        t_time = datetime.strptime(t_time, '%Y-%m-%d')
+                    else:
+                        t_time = datetime.strptime(t_time, '%Y-%m-%d %H:%M:%S')
+                
+                insert_data.append((
+                    row.get('stock_code'),
+                    t_time,
+                    float(row.get('price', 0) or row.get('close', 0)),
+                    float(row.get('volume', 0) or row.get('vol', 0)),
+                    float(row.get('amount', 0))
+                ))
+            
+            if insert_data:
+                client.execute(
+                    'INSERT INTO stock_realtime_minute (stock_code, trade_time, price, volume, amount) VALUES',
+                    insert_data
+                )
+                logging.info(f"成功补全时间点 {target_time_str} 的 {len(insert_data)} 条分时数据")
+    except Exception as e:
+        logging.error(f"补缺时间点 {target_time_str} 失败: {e}")
+
 def check_and_fill_missing_minutes():
     """检查并按时间补缺当天缺失的分时数据"""
     now = datetime.now()
@@ -67,17 +107,10 @@ def check_and_fill_missing_minutes():
         expected_times.append(t.strftime("%H:%M"))
         t += timedelta(minutes=1)
         
-    # 动态获取当前全市场的股票数量，作为判断某分钟数据是否完整的基准
-    try:
-        stocks = get_stock_list()
-        total_stocks = len(stocks) if stocks else 5000
-    except Exception as e:
-        logging.error(f"获取股票列表失败，使用默认数量 5000: {e}")
-        total_stocks = 5000
-        
-    threshold = int(total_stocks * 0.95)
+    # 设定超过4500条数据就认为该分钟数据大致完整
+    threshold = 4500
     
-    # 查询今天数据库中已经有数据的分钟点 (只要该分钟有超过 threshold 条数据，就认为该分钟数据大致完整)
+    # 查询今天数据库中已经有数据的分钟点
     query = f"""
         SELECT formatDateTime(trade_time, '%H:%M') AS t_time, count(*) as cnt
         FROM stock_realtime_minute
@@ -94,46 +127,19 @@ def check_and_fill_missing_minutes():
     missing_times = [t for t in expected_times if t not in existing_times]
     
     if missing_times:
-        logging.info(f"全市场缺失 {len(missing_times)} 个分钟点的数据，开始按时间补缺...")
-        for missing_time in missing_times:
-            target_time_str = f"{today_str} {missing_time}:00"
-            logging.info(f"正在补缺时间点: {target_time_str} ...")
-            try:
-                data = make_request("/api/realtime/history", {"trade_time": target_time_str}, method='POST')
-                
-                records = []
-                if isinstance(data, dict) and 'list' in data:
-                    records = data['list']
-                elif isinstance(data, list):
-                    records = data
-
-                if records:
-                    insert_data = []
-                    for row in records:
-                        t_time = row.get('trade_time')
-                        if isinstance(t_time, str):
-                            if len(t_time) == 10:
-                                t_time = datetime.strptime(t_time, '%Y-%m-%d')
-                            else:
-                                t_time = datetime.strptime(t_time, '%Y-%m-%d %H:%M:%S')
-                        
-                        insert_data.append((
-                            row.get('stock_code'),
-                            t_time,
-                            float(row.get('price', 0) or row.get('close', 0)),
-                            float(row.get('volume', 0) or row.get('vol', 0)),
-                            float(row.get('amount', 0))
-                        ))
-                    
-                    if insert_data:
-                        client.execute(
-                            'INSERT INTO stock_realtime_minute (stock_code, trade_time, price, volume, amount) VALUES',
-                            insert_data
-                        )
-                        logging.info(f"成功补全时间点 {target_time_str} 的 {len(insert_data)} 条分时数据")
-            except Exception as e:
-                logging.error(f"补缺时间点 {target_time_str} 失败: {e}")
-            time.sleep(1) # 避免请求过快
+        logging.info(f"全市场缺失 {len(missing_times)} 个分钟点的数据，开始多线程按时间补缺...")
+        
+        # 控制并发数，避免把接口打挂或触发限速
+        max_workers = min(10, len(missing_times))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for missing_time in missing_times:
+                target_time_str = f"{today_str} {missing_time}:00"
+                futures.append(executor.submit(fetch_and_insert_missing_minute, target_time_str))
+            
+            # 等待所有补缺任务完成
+            for future in as_completed(futures):
+                pass
     else:
         logging.info("全市场历史分时数据完整，无需补缺。")
 
