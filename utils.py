@@ -57,9 +57,8 @@ def make_request(endpoint, params=None, method='GET'):
                 response = requests.get(url, params=params, headers=headers, timeout=60)
             
             if response.status_code in [401, 402, 403]:
-                logging.error(f"API Key 验证失败或无权限 (HTTP {response.status_code})，程序退出。URL: {url}")
-                import os
-                os._exit(1)
+                logging.error(f"API Key 验证失败或无权限 (HTTP {response.status_code})，跳过本次请求。URL: {url}")
+                return None
 
             # 如果触发限速 (假设 HTTP 状态码 429 或 错误码)
             if response.status_code == 429:
@@ -71,9 +70,8 @@ def make_request(endpoint, params=None, method='GET'):
             data = response.json()
             
             if data.get('code') in [401, 402, 403]:
-                logging.error(f"API Key 验证失败或无权限 (Code {data.get('code')})，程序退出。URL: {url}")
-                import os
-                os._exit(1)
+                logging.error(f"API Key 验证失败或无权限 (Code {data.get('code')})，跳过本次请求。URL: {url}")
+                return None
 
             # 根据约定的业务 code 判断，这里假设非 200 为限速或其他错误
             if data.get('code') == 429 or '限速' in str(data.get('msg', '')):
@@ -82,7 +80,7 @@ def make_request(endpoint, params=None, method='GET'):
                 continue
                 
             if data.get('code') != 200:
-                logging.error(f"接口返回错误: {data.get('msg')}")
+                logging.error(f"接口返回错误: {data.get('msg')} (Code {data.get('code')}) URL: {url}")
                 # 根据需要抛出异常或返回 None
                 return None
                 
@@ -90,9 +88,8 @@ def make_request(endpoint, params=None, method='GET'):
             
         except requests.exceptions.RequestException as e:
             if hasattr(e, 'response') and e.response is not None and e.response.status_code in [401, 402, 403]:
-                logging.error(f"API Key 验证失败或无权限 (HTTP {e.response.status_code})，程序退出。URL: {url}")
-                import os
-                os._exit(1)
+                logging.error(f"API Key 验证失败或无权限 (HTTP {e.response.status_code})，跳过本次请求。URL: {url}")
+                return None
                 
             trace_id = ""
             if 'response' in locals() and hasattr(response, 'headers'):
