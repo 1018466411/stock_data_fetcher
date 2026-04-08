@@ -68,6 +68,10 @@ async def index(request: Request):
 async def data_viewer(request: Request):
     return templates.TemplateResponse("data.html", {"request": request})
 
+@app.get("/config", response_class=HTMLResponse)
+async def config_viewer(request: Request):
+    return templates.TemplateResponse("config.html", {"request": request})
+
 @app.get("/api/tasks")
 async def get_tasks():
     with task_lock:
@@ -201,7 +205,8 @@ async def stop_task(task_id: str):
 @app.post("/api/query")
 async def execute_query(req: SqlQueryRequest):
     try:
-        client = db.get_ch_client()
+        from db import get_db
+        db_instance = get_db()
         query = req.query.strip()
         # 如果用户没有写 LIMIT，自动加上 LIMIT 1000 以防止拖垮浏览器和服务器
         if "LIMIT " not in query.upper() and not query.endswith(";"):
@@ -209,7 +214,7 @@ async def execute_query(req: SqlQueryRequest):
         elif "LIMIT " not in query.upper() and query.endswith(";"):
             query = f"{query[:-1]} LIMIT 1000"
             
-        result, columns = client.execute(query, with_column_types=True)
+        result, columns = db_instance.query(query, with_column_types=True)
         col_names = [c[0] for c in columns]
         
         # Format output
@@ -230,12 +235,60 @@ async def execute_query(req: SqlQueryRequest):
 @app.get("/api/tables")
 async def get_tables():
     try:
-        client = db.get_ch_client()
-        result = client.execute("SHOW TABLES")
+        from db import get_db
+        db_instance = get_db()
+        result = db_instance.query("SHOW TABLES")
         tables = [r[0] for r in result]
         return {"tables": tables}
     except Exception as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
+
+class TableConfigRequest(BaseModel):
+    tables: Dict[str, Any]
+
+@app.get("/api/config/tables")
+async def get_table_config():
+    try:
+        config = db.get_config()
+        tables = config.get("tables", {})
+        # Merge with default schema to provide all available keys
+        from db import DEFAULT_SCHEMA
+        result = {}
+        for key, schema in DEFAULT_SCHEMA.items():
+            conf = tables.get(key, {})
+            result[key] = {
+                "name": conf.get("name", f"stock_{key}"),
+                "fields": {k: conf.get("fields", {}).get(k, k) for k in schema["fields"].keys()}
+            }
+        return {"tables": result}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.post("/api/config/tables")
+async def update_table_config(req: TableConfigRequest):
+    try:
+        config = db.get_config()
+        old_tables = config.get("tables", {})
+        new_tables = req.tables
+        
+        from db import get_db
+        db_instance = get_db()
+        
+        for key, new_conf in new_tables.items():
+            old_conf = old_tables.get(key, {})
+            if old_conf:
+                # Perform ALTER TABLE
+                db_instance.alter_table(key, old_conf, new_conf)
+                
+        config["tables"] = new_tables
+        db.save_config(config)
+        # re-init DB to apply new configs in memory
+        db_instance.config = config
+        db_instance.tables_config = new_tables
+        
+        return {"message": "Table configuration updated successfully"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 if __name__ == "__main__":
     import uvicorn

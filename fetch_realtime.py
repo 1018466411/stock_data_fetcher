@@ -31,7 +31,8 @@ def fetch_and_save_snapshot():
     """获取并保存实时快照数据"""
     page = 1
     page_size = 500
-    client = get_ch_client()
+    from db import get_db
+    db = get_db()
     
     total_inserted = 0
     while True:
@@ -59,28 +60,23 @@ def fetch_and_save_snapshot():
                     else:
                         t_time = datetime.strptime(t_time, '%Y-%m-%d %H:%M:%S')
 
-                insert_data.append((
-                    row.get('stock_code'),
-                    t_time,
-                    float(row.get('current_price', 0) or row.get('price', 0)),
-                    float(row.get('open', 0)),
-                    float(row.get('high', 0)),
-                    float(row.get('low', 0)),
-                    float(row.get('volume', 0)),
-                    float(row.get('amount', 0)),
-                    buy_vols,
-                    buy_prices,
-                    sell_vols,
-                    sell_prices
-                ))
+                insert_data.append({
+                    'stock_code': row.get('stock_code'),
+                    'snapshot_time': t_time,
+                    'price': float(row.get('current_price', 0) or row.get('price', 0)),
+                    'open': float(row.get('open', 0)),
+                    'high': float(row.get('high', 0)),
+                    'low': float(row.get('low', 0)),
+                    'volume': float(row.get('volume', 0)),
+                    'amount': float(row.get('amount', 0)),
+                    'buy_vols': buy_vols,
+                    'buy_prices': buy_prices,
+                    'sell_vols': sell_vols,
+                    'sell_prices': sell_prices
+                })
                 
             if insert_data:
-                client.execute(
-                    '''INSERT INTO stock_realtime_snapshot 
-                       (stock_code, snapshot_time, price, open, high, low, volume, amount, 
-                       buy_vols, buy_prices, sell_vols, sell_prices) VALUES''',
-                    insert_data
-                )
+                db.insert('realtime_snapshot', insert_data)
                 total_inserted += len(insert_data)
                 
             if len(records) < page_size:

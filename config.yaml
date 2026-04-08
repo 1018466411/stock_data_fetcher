@@ -2,6 +2,8 @@ api:
   domain: "https://data.diemeng.chat"
   api_key: "" # 推荐在界面上配置，配置后会保存到 .env 文件中
 
+db_type: "clickhouse"
+
 clickhouse:
   host: "clickhouse"
   port: 9000
@@ -11,3 +13,123 @@ clickhouse:
 
 threads:
   max_workers: 10
+
+tables:
+  history_1m:
+    name: "stock_history_1m"
+    fields:
+      stock_code: "stock_code"
+      trade_time: "trade_time"
+      open: "open"
+      close: "close"
+      high: "high"
+      low: "low"
+      volume: "volume"
+      amount: "amount"
+  history_5m:
+    name: "stock_history_5m"
+    fields:
+      stock_code: "stock_code"
+      trade_time: "trade_time"
+      open: "open"
+      close: "close"
+      high: "high"
+      low: "low"
+      volume: "volume"
+      amount: "amount"
+  history_15m:
+    name: "stock_history_15m"
+    fields:
+      stock_code: "stock_code"
+      trade_time: "trade_time"
+      open: "open"
+      close: "close"
+      high: "high"
+      low: "low"
+      volume: "volume"
+      amount: "amount"
+  history_30m:
+    name: "stock_history_30m"
+    fields:
+      stock_code: "stock_code"
+      trade_time: "trade_time"
+      open: "open"
+      close: "close"
+      high: "high"
+      low: "low"
+      volume: "volume"
+      amount: "amount"
+  history_60m:
+    name: "stock_history_60m"
+    fields:
+      stock_code: "stock_code"
+      trade_time: "trade_time"
+      open: "open"
+      close: "close"
+      high: "high"
+      low: "low"
+      volume: "volume"
+      amount: "amount"
+  history_daily:
+    name: "stock_history_daily"
+    fields:
+      stock_code: "stock_code"
+      trade_time: "trade_time"
+      open: "open"
+      close: "close"
+      high: "high"
+      low: "low"
+      volume: "volume"
+      amount: "amount"
+  finance:
+    name: "stock_finance"
+    fields:
+      stock_code: "stock_code"
+      trade_date: "trade_date"
+      close: "close"
+      turnover_rate: "turnover_rate"
+      turnover_rate_f: "turnover_rate_f"
+      volume_ratio: "volume_ratio"
+      pe: "pe"
+      pe_ttm: "pe_ttm"
+      pe_ttm_percentile: "pe_ttm_percentile"
+      pb: "pb"
+      ps: "ps"
+      ps_ttm: "ps_ttm"
+      dv_ratio: "dv_ratio"
+      dv_ttm: "dv_ttm"
+      total_share: "total_share"
+      float_share: "float_share"
+      free_share: "free_share"
+      total_mv: "total_mv"
+      circ_mv: "circ_mv"
+  realtime_minute:
+    name: "stock_realtime_minute"
+    fields:
+      stock_code: "stock_code"
+      trade_time: "trade_time"
+      price: "price"
+      volume: "volume"
+      amount: "amount"
+  realtime_snapshot:
+    name: "stock_realtime_snapshot"
+    fields:
+      stock_code: "stock_code"
+      snapshot_time: "snapshot_time"
+      price: "price"
+      open: "open"
+      high: "high"
+      low: "low"
+      volume: "volume"
+      amount: "amount"
+      buy_vols: "buy_vols"
+      buy_prices: "buy_prices"
+      sell_vols: "sell_vols"
+      sell_prices: "sell_prices"
+  ws_data:
+    name: "stock_ws_data"
+    fields:
+      stock_code: "stock_code"
+      push_time: "push_time"
+      data_type: "data_type"
+      content: "content"

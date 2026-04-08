@@ -43,7 +43,8 @@ def is_trading_time():
 def fetch_and_insert_missing_minute(target_time_str):
     """单独获取并插入某一分钟的数据"""
     try:
-        client = get_ch_client()
+        from db import get_db
+        db = get_db()
         logging.info(f"正在补缺时间点: {target_time_str} ...")
         data = make_request("/api/realtime/history", {"trade_time": target_time_str}, method='POST')
         
@@ -63,19 +64,16 @@ def fetch_and_insert_missing_minute(target_time_str):
                     else:
                         t_time = datetime.strptime(t_time, '%Y-%m-%d %H:%M:%S')
                 
-                insert_data.append((
-                    row.get('stock_code'),
-                    t_time,
-                    float(row.get('price', 0) or row.get('close', 0)),
-                    float(row.get('volume', 0) or row.get('vol', 0)),
-                    float(row.get('amount', 0))
-                ))
+                insert_data.append({
+                    'stock_code': row.get('stock_code'),
+                    'trade_time': t_time,
+                    'price': float(row.get('price', 0) or row.get('close', 0)),
+                    'volume': float(row.get('volume', 0) or row.get('vol', 0)),
+                    'amount': float(row.get('amount', 0))
+                })
             
             if insert_data:
-                client.execute(
-                    'INSERT INTO stock_realtime_minute (stock_code, trade_time, price, volume, amount) VALUES',
-                    insert_data
-                )
+                db.insert('realtime_minute', insert_data)
                 logging.info(f"成功补全时间点 {target_time_str} 的 {len(insert_data)} 条分时数据")
     except Exception as e:
         logging.error(f"补缺时间点 {target_time_str} 失败: {e}")
@@ -86,7 +84,8 @@ def check_and_fill_missing_minutes():
     if now.hour < 9 or (now.hour == 9 and now.minute < 30):
         return
         
-    client = get_ch_client()
+    from db import get_db, get_config
+    db = get_db()
     today_str = now.strftime('%Y-%m-%d')
     
     # 获取今天预期应该有的所有分钟时间点
@@ -110,16 +109,21 @@ def check_and_fill_missing_minutes():
     # 设定超过4500条数据就认为该分钟数据大致完整
     threshold = 4500
     
+    table_config = get_config().get('tables', {}).get('realtime_minute', {})
+    table_name = table_config.get('name', 'stock_realtime_minute')
+    fields = table_config.get('fields', {})
+    trade_time_col = fields.get('trade_time', 'trade_time')
+    
     # 查询今天数据库中已经有数据的分钟点
     query = f"""
-        SELECT formatDateTime(trade_time, '%H:%M') AS t_time, count(*) as cnt
-        FROM stock_realtime_minute
-        WHERE toDate(trade_time) = toDate('{today_str}')
+        SELECT formatDateTime({trade_time_col}, '%H:%M') AS t_time, count(*) as cnt
+        FROM {table_name}
+        WHERE toDate({trade_time_col}) = toDate('{today_str}')
         GROUP BY t_time
         HAVING cnt > {threshold}
     """
     try:
-        existing_times = [row[0] for row in client.execute(query)]
+        existing_times = [row[0] for row in db.query(query)]
     except Exception as e:
         logging.error(f"查询已有分时汇总失败: {e}")
         return
@@ -150,7 +154,8 @@ def fetch_current_minute_with_retry(target_time_str, is_update=False):
     如果是 15 秒更新触发，最多重试 5 次。
     获取成功后，触发补缺逻辑。
     """
-    client = get_ch_client()
+    from db import get_db
+    db = get_db()
     max_retries = 5 if is_update else 55
     success = False
     
@@ -173,18 +178,15 @@ def fetch_current_minute_with_retry(target_time_str, is_update=False):
                             t_time = datetime.strptime(t_time, '%Y-%m-%d')
                         else:
                             t_time = datetime.strptime(t_time, '%Y-%m-%d %H:%M:%S')
-                    insert_data.append((
-                        row.get('stock_code'),
-                        t_time,
-                        float(row.get('price', 0) or row.get('close', 0)),
-                        float(row.get('volume', 0) or row.get('vol', 0)),
-                        float(row.get('amount', 0))
-                    ))
+                    insert_data.append({
+                        'stock_code': row.get('stock_code'),
+                        'trade_time': t_time,
+                        'price': float(row.get('price', 0) or row.get('close', 0)),
+                        'volume': float(row.get('volume', 0) or row.get('vol', 0)),
+                        'amount': float(row.get('amount', 0))
+                    })
                 if insert_data:
-                    client.execute(
-                        'INSERT INTO stock_realtime_minute (stock_code, trade_time, price, volume, amount) VALUES',
-                        insert_data
-                    )
+                    db.insert('realtime_minute', insert_data)
                 action_str = "更新" if is_update else "获取"
                 logging.info(f"成功{action_str}并写入 {len(insert_data)} 条分时数据，时间: {target_time_str} (尝试次数: {attempt+1})")
                 success = True

@@ -43,7 +43,8 @@ def get_stock_list():
 
 def fetch_and_save_finance(stock_code, start_time, end_time):
     """获取并保存财务数据"""
-    client = get_ch_client()
+    from db import get_db
+    db = get_db()
     
     # 截取日期部分 YYYY-MM-DD
     start_date = start_time.split(' ')[0] if start_time else None
@@ -71,42 +72,37 @@ def fetch_and_save_finance(stock_code, start_time, end_time):
         if trade_date and isinstance(trade_date, str):
             trade_date = datetime.strptime(trade_date.split(' ')[0], '%Y-%m-%d').date()
             
-        insert_data.append((
-            stock_code,
-            trade_date,
-            float(row.get('close', 0) or 0),
-            float(row.get('turnover_rate', 0) or 0),
-            float(row.get('turnover_rate_f', 0) or 0),
-            float(row.get('volume_ratio', 0) or 0),
-            float(row.get('pe', 0) or 0),
-            float(row.get('pe_ttm', 0) or 0),
-            float(row.get('pe_ttm_percentile', 0) or 0),
-            float(row.get('pb', 0) or 0),
-            float(row.get('ps', 0) or 0),
-            float(row.get('ps_ttm', 0) or 0),
-            float(row.get('dv_ratio', 0) or 0),
-            float(row.get('dv_ttm', 0) or 0),
-            float(row.get('total_share', 0) or 0),
-            float(row.get('float_share', 0) or 0),
-            float(row.get('free_share', 0) or 0),
-            float(row.get('total_mv', 0) or 0),
-            float(row.get('circ_mv', 0) or 0)
-        ))
+        insert_data.append({
+            'stock_code': stock_code,
+            'trade_date': trade_date,
+            'close': float(row.get('close', 0) or 0),
+            'turnover_rate': float(row.get('turnover_rate', 0) or 0),
+            'turnover_rate_f': float(row.get('turnover_rate_f', 0) or 0),
+            'volume_ratio': float(row.get('volume_ratio', 0) or 0),
+            'pe': float(row.get('pe', 0) or 0),
+            'pe_ttm': float(row.get('pe_ttm', 0) or 0),
+            'pe_ttm_percentile': float(row.get('pe_ttm_percentile', 0) or 0),
+            'pb': float(row.get('pb', 0) or 0),
+            'ps': float(row.get('ps', 0) or 0),
+            'ps_ttm': float(row.get('ps_ttm', 0) or 0),
+            'dv_ratio': float(row.get('dv_ratio', 0) or 0),
+            'dv_ttm': float(row.get('dv_ttm', 0) or 0),
+            'total_share': float(row.get('total_share', 0) or 0),
+            'float_share': float(row.get('float_share', 0) or 0),
+            'free_share': float(row.get('free_share', 0) or 0),
+            'total_mv': float(row.get('total_mv', 0) or 0),
+            'circ_mv': float(row.get('circ_mv', 0) or 0)
+        })
     
     if insert_data:
-        client.execute(
-            '''INSERT INTO stock_finance 
-            (stock_code, trade_date, close, turnover_rate, turnover_rate_f, volume_ratio, 
-            pe, pe_ttm, pe_ttm_percentile, pb, ps, ps_ttm, dv_ratio, dv_ttm, 
-            total_share, float_share, free_share, total_mv, circ_mv) VALUES''',
-            insert_data
-        )
+        db.insert('finance', insert_data)
 
 def fetch_and_save_history(stock_code, level, start_time, end_time):
     """获取并保存历史K线数据"""
     page = 0
     page_size = 10000
-    client = get_ch_client()
+    from db import get_db
+    db = get_db()
     
     while True:
         params = {
@@ -145,23 +141,20 @@ def fetch_and_save_history(stock_code, level, start_time, end_time):
                 else:
                     trade_time = datetime.strptime(trade_time, '%Y-%m-%d %H:%M:%S')
             volume = row.get('volume') or row.get('vol', 0)
-            insert_data.append((
-                stock_code,
-                trade_time,
-                float(row.get('open', 0)),
-                float(row.get('close', 0)),
-                float(row.get('high', 0)),
-                float(row.get('low', 0)),
-                float(volume),
-                float(row.get('amount', 0))
-            ))
+            insert_data.append({
+                'stock_code': stock_code,
+                'trade_time': trade_time,
+                'open': float(row.get('open', 0)),
+                'close': float(row.get('close', 0)),
+                'high': float(row.get('high', 0)),
+                'low': float(row.get('low', 0)),
+                'volume': float(volume),
+                'amount': float(row.get('amount', 0))
+            })
 
         if insert_data:
-            table_name = f"stock_history_{level}"
-            client.execute(
-                f'INSERT INTO {table_name} (stock_code, trade_time, open, close, high, low, volume, amount) VALUES',
-                insert_data
-            )
+            table_key = f"history_{level}"
+            db.insert(table_key, insert_data)
             
         if len(records) < page_size:
             break
@@ -204,15 +197,21 @@ def fill_gaps(stock_code, levels, start_time, end_time):
         logging.info(f"{stock_code} 没有基准日K数据，跳过补缺。")
         return
 
-    client = get_ch_client()
+    from db import get_db
+    client = get_db()
     
     for level in levels:
-        table_name = f"stock_history_{level}"
-        query = f"SELECT DISTINCT toDate(trade_time) FROM {table_name} WHERE stock_code = '{stock_code}'"
+        table_config = get_config().get('tables', {}).get(f'history_{level}', {})
+        table_name = table_config.get('name', f"stock_history_{level}")
+        fields = table_config.get('fields', {})
+        trade_time_col = fields.get('trade_time', 'trade_time')
+        stock_code_col = fields.get('stock_code', 'stock_code')
+        
+        query = f"SELECT DISTINCT toDate({trade_time_col}) FROM {table_name} WHERE {stock_code_col} = '{stock_code}'"
         if start_date:
-            query += f" AND trade_time >= '{start_date} 00:00:00'"
+            query += f" AND {trade_time_col} >= '{start_date} 00:00:00'"
         if end_date:
-            query += f" AND trade_time <= '{end_date} 23:59:59'"
+            query += f" AND {trade_time_col} <= '{end_date} 23:59:59'"
             
         try:
             existing_dates_tuples = client.execute(query)

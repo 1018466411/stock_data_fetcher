@@ -37,12 +37,9 @@ def save_to_db(data_list):
         return
         
     try:
-        # 为每个线程创建一个新的客户端，避免并发查询报错
-        client = get_ch_client()
-        client.execute(
-            'INSERT INTO stock_ws_data (stock_code, push_time, data_type, content) VALUES',
-            data_list
-        )
+        from db import get_db
+        db = get_db()
+        db.insert('ws_data', data_list)
     except Exception as e:
         logging.error(f"写入数据库失败: {e}")
 
@@ -91,7 +88,12 @@ def on_message(ws, message):
             # 将具体内容转为字符串保存
             content = json.dumps(item.get('content', item), ensure_ascii=False)
             
-            insert_data.append((stock_code, push_time, data_type, content))
+            insert_data.append({
+                'stock_code': stock_code,
+                'push_time': push_time,
+                'data_type': data_type,
+                'content': content
+            })
             
         if insert_data:
             # 使用新线程异步写入数据库，避免阻塞 WS 接收
