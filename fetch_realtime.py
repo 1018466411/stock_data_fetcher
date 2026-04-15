@@ -13,15 +13,20 @@ import time
 import schedule
 import logging
 import threading
+import os
 from datetime import datetime
 from db import get_ch_client, get_config, init_db
 from utils import make_request
+from fetch_limit_status import LimitStatusMonitor
 
 # Ensure unbuffered output so logs appear immediately in subprocess pipes
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', stream=sys.stdout)
+
+enable_limit_status = os.getenv("ENABLE_LIMIT_STATUS_IN_REALTIME", "1") == "1"
+limit_monitor = None
 
 def is_trading_time():
     """判断当前时间是否为交易时间 (简单判断，不考虑节假日)"""
@@ -53,12 +58,23 @@ def fetch_and_save_snapshot():
                 sell_vols = [float(x) for x in row.get('sell_vol', [])] if isinstance(row.get('sell_vol'), list) else []
                 sell_prices = [float(x) for x in row.get('sell_price', [])] if isinstance(row.get('sell_price'), list) else []
                 
-                t_time = row.get('trade_time') or row.get('snapshot_time') or datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                if isinstance(t_time, str):
-                    if len(t_time) == 10:
-                        t_time = datetime.strptime(t_time, '%Y-%m-%d')
+                t_time_val = row.get('trade_time') or row.get('snapshot_time') or row.get('update_time')
+                now = datetime.now()
+                is_before_930 = now.hour < 9 or (now.hour == 9 and now.minute < 30)
+                
+                if is_before_930:
+                    t_time = now
+                else:
+                    if t_time_val:
+                        if isinstance(t_time_val, str):
+                            if len(t_time_val) == 10:
+                                t_time = datetime.strptime(t_time_val, '%Y-%m-%d')
+                            else:
+                                t_time = datetime.strptime(t_time_val, '%Y-%m-%d %H:%M:%S')
+                        else:
+                            t_time = now
                     else:
-                        t_time = datetime.strptime(t_time, '%Y-%m-%d %H:%M:%S')
+                        t_time = now
 
                 insert_data.append({
                     'stock_code': row.get('stock_code'),
@@ -74,6 +90,13 @@ def fetch_and_save_snapshot():
                     'sell_vols': sell_vols,
                     'sell_prices': sell_prices
                 })
+
+                # 复用同一批快照做涨跌停状态机，不新增任何接口请求。
+                if enable_limit_status and limit_monitor is not None:
+                    try:
+                        limit_monitor.process_row(row, source="realtime")
+                    except Exception as e:
+                        logging.error(f"涨跌停状态处理失败: {e}")
                 
             if insert_data:
                 db.insert('realtime_snapshot', insert_data)
@@ -99,7 +122,18 @@ def run_job_in_thread():
     threading.Thread(target=snapshot_sync_job).start()
 
 def main():
+    global limit_monitor
     init_db()
+
+    if enable_limit_status:
+        try:
+            limit_monitor = LimitStatusMonitor()
+            limit_monitor.ensure_daily_reset()
+            logging.info("已启用涨跌停状态推送（复用 fetch_realtime 轮询，无额外请求）")
+        except Exception as e:
+            limit_monitor = None
+            logging.error(f"涨跌停状态推送初始化失败，将仅保留快照入库: {e}")
+
     logging.info("实时快照服务已启动，每 3 秒执行一次...")
     
     schedule.every(3).seconds.do(run_job_in_thread)

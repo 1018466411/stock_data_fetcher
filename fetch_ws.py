@@ -76,14 +76,34 @@ def on_message(ws, message):
             return
             
         insert_data = []
+        now = datetime.now()
+        is_before_930 = now.hour < 9 or (now.hour == 9 and now.minute < 30)
+        
         for item in records:
             stock_code = item.get('cd', item.get('stock_code', 'UNKNOWN'))
-            push_time = item.get('ut', item.get('time', datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
-            if isinstance(push_time, str):
-                if len(push_time) == 10:
-                    push_time = datetime.strptime(push_time, '%Y-%m-%d')
+            
+            if is_before_930:
+                push_time = now
+                now_str = now.strftime('%Y-%m-%d %H:%M:%S')
+                if 'ut' in item:
+                    item['ut'] = now_str
+                if 'time' in item:
+                    item['time'] = now_str
+                if 'update_time' in item:
+                    item['update_time'] = now_str
+            else:
+                push_time_val = item.get('ut', item.get('time'))
+                if push_time_val:
+                    if isinstance(push_time_val, str):
+                        if len(push_time_val) == 10:
+                            push_time = datetime.strptime(push_time_val, '%Y-%m-%d')
+                        else:
+                            push_time = datetime.strptime(push_time_val, '%Y-%m-%d %H:%M:%S')
+                    else:
+                        push_time = now
                 else:
-                    push_time = datetime.strptime(push_time, '%Y-%m-%d %H:%M:%S')
+                    push_time = now
+            
             data_type = item.get('data_type', 'snapshot')
             # 将具体内容转为字符串保存
             content = json.dumps(item.get('content', item), ensure_ascii=False)

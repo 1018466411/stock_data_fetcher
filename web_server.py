@@ -193,6 +193,15 @@ async def start_ws_task(background_tasks: BackgroundTasks):
     background_tasks.add_task(run_script_in_background, task_id, cmd)
     return {"message": "Task started", "task_id": task_id}
 
+@app.post("/api/tasks/start/limit_status")
+async def start_limit_status_task(background_tasks: BackgroundTasks):
+    return JSONResponse(
+        status_code=400,
+        content={
+            "error": "已合并到 fetch_realtime.py，请使用 /api/tasks/start/realtime 启动，避免重复轮询超限。"
+        },
+    )
+
 @app.post("/api/tasks/stop/{task_id}")
 async def stop_task(task_id: str):
     with task_lock:
